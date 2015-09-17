@@ -9,7 +9,7 @@ from twisted.web import server, wsgi
 from twisted.python.logfile import DailyLogFile
 from toughportal.tools import utils
 from toughportal.console import models
-from toughportal.console.portal import handlers
+from toughportal.console.portal import cmcc_portal,huawei_portal
 from beaker.cache import CacheManager
 from beaker.util import parse_cache_config_options
 from mako.lookup import TemplateLookup
@@ -22,9 +22,12 @@ import time
 class Application(cyclone.web.Application):
     def __init__(self,**kwargs):
         _handlers = [
-            (r"/", handlers.HomeHandler),
-            (r"/login", handlers.LoginHandler),
-            (r"/logout", handlers.LogoutHandler),
+            (r"/cmcc", cmcc_portal.HomeHandler),
+            (r"/cmcc/login", cmcc_portal.LoginHandler),
+            (r"/cmcc/logout", cmcc_portal.LogoutHandler),
+            (r"/huawei", cmcc_portal.HomeHandler),
+            (r"/huawei/login", cmcc_portal.LoginHandler),
+            (r"/huawei/logout", cmcc_portal.LogoutHandler),
         ]
         
         server = kwargs.pop("server")
@@ -37,7 +40,7 @@ class Application(cyclone.web.Application):
             xsrf_cookies=True,
             debug=kwargs.get("debug",False),
             share_secret=server.share_secret,
-            ac_addr=(server.ac1[0],int(server.ac1[1]))
+            ac_addr=(server.ac[0],int(server.ac[1]))
         )
 
         self.cache = CacheManager(**parse_cache_config_options({
@@ -51,9 +54,7 @@ class Application(cyclone.web.Application):
                                         input_encoding='utf-8',
                                         output_encoding='utf-8',
                                         encoding_errors='replace',
-                                        module_directory="/tmp")
-
-        self.logging = logging.getLogger('app:logging')
+                                        module_directory="/tmp/portal")
         
         cyclone.web.Application.__init__(self, _handlers, **settings)
 
@@ -62,9 +63,8 @@ class Application(cyclone.web.Application):
 ###############################################################################
 class PortalServer(object):
     
-    def __init__(self,config,daemon=False):
+    def __init__(self,config):
         self.config = config
-        self.daemon = daemon
         self.init_config()
         self.init_timezone()
         self.web_factory = Application(server=self,debug=self.debug)
@@ -78,9 +78,7 @@ class PortalServer(object):
         self.host = self.config.has_option('portal','host') \
             and self.config.get('portal','host') or  '0.0.0.0'
         self.share_secret = self.config.get('portal','secret')
-        self.ac1 = self.config.get('portal','ac1').split(':')
-        self.ac2 = self.config.has_option('portal','ac2') and \
-            self.config.get('portal','ac2').split(':') or None
+        self.ac = self.config.get('portal','ac1').split(':')
         # update aescipher
         utils.aescipher.setup(self.secret)
         self.encrypt = utils.aescipher.encrypt
@@ -123,28 +121,9 @@ class PortalServer(object):
         else:
             reactor.listenTCP(self.port, self.web_factory,interface=self.host)
 
-        
-    def get_service(self):
-        from twisted.application import service, internet
-        if self.use_ssl:
-            log.msg('Portal SSL Enable!')
-            from twisted.internet import ssl
-            sslContext = ssl.DefaultOpenSSLContextFactory(self.privatekey, self.certificate)
-            return internet.SSLServer(
-                self.port,
-                self.web_factory,
-                contextFactory = sslContext,
-                interface = self.host
-            )
-        else: 
-            log.msg('Portal SSL Disable!')       
-            return internet.TCPServer(self.port,self.web_factory,interface = self.host)    
  
 def run(config,is_service=False):
     print 'running portal server...'
-    portal = PortalServer(config,daemon=is_service)
-    if is_service:
-        return portal.get_service()
-    else:
-        portal.run_normal()
+    portal = PortalServer(config)
+    portal.run_normal()
             

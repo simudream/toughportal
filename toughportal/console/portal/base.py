@@ -12,24 +12,19 @@ import urllib
 import time
 import traceback
 from cyclone.util import ObjectDict
-from toughradius.console.libs import utils
-from toughradius.console.libs.paginator import Paginator
-from toughradius.console.libs.validate import vcache
-from toughradius.console import models
+from toughportal.console.libs import utils
+from toughportal.console.libs.validate import vcache
+from toughportal.console import models
 
 
 class BaseHandler(cyclone.web.RequestHandler):
     
     def __init__(self, *argc, **argkw):
         super(BaseHandler, self).__init__(*argc, **argkw)
-        self.logging = self.application.logging
 
     def initialize(self):
-        self.db = self.application.db()
         self.tp_lookup = self.application.tp_lookup
-        
-    def on_finish(self):
-        self.db.close()
+
         
     def get_error_html(self, status_code=500, **kwargs):
         if self.request.headers.get('X-Requested-With') == 'XMLHttpRequest':
@@ -77,52 +72,21 @@ class BaseHandler(cyclone.web.RequestHandler):
         template = Template(template_string)
         return template.render(**template_vars)
 
-
-    def get_page_data(self, query):
-        page_size = self.application.settings.get("page_size",20)
-        page = int(self.get_argument("page", 1))
-        offset = (page - 1) * page_size
-        result = query.limit(page_size).offset(offset)
-        page_data = Paginator(self.get_page_url, page, query.count(), page_size)
-        page_data.result = result
-        return page_data
-   
-
-
-    def get_page_url(self, page, form_id=None):
-        if form_id:
-            return "javascript:goto_page('%s',%s);" %(form_id.strip(),page)
-        path = self.request.path
-        query = self.request.query
-        qdict = urlparse.parse_qs(query)
-        for k, v in qdict.items():
-            if isinstance(v, list):
-                qdict[k] = v and v[0] or ''
-
-        qdict['page'] = page
-        return path + '?' + urllib.urlencode(qdict)
         
     def get_current_user(self):
         username = self.get_secure_cookie("portal_user")
         if not username: return None
         ipaddr = self.get_secure_cookie("portal_user_ip")
-
         user = ObjectDict()
         user.username = username
         user.ipaddr = ipaddr
         return user
 
-
-
-    def get_login_template(self,**kwargs):
-        userip = self.request.remote_ip
-        if self.chk_mobile():pass
-        return "login.html"
-
-    def get_index_template(self,**kwargs):
-        userip = self.request.remote_ip
-        return "index.html"
-
+    def get_wlan_params(self, query_str):
+        _query = urllib.unquote(query_str)
+        params = urlparse.parse_qs(_query)
+        param_dict = {k: params[k][0] for k in params}
+        return param_dict
 
     def chk_mobile(self):
         userAgent = self.request.headers['User-Agent']
@@ -138,4 +102,18 @@ class BaseHandler(cyclone.web.RequestHandler):
         if _short_matches.search(user_agent) != None:
             return True
         return False
-    
+
+    def get_login_template(self, tpl_name='default'):
+        return "%s/login.html" % tpl_name
+
+    def get_error_template(self, tpl_name='default'):
+        if tpl_name:
+            return "%s/error.html" % tpl_name
+        else:
+            return "default/error.html"
+
+    def get_index_template(self, tpl_name='default'):
+        if tpl_name:
+            return "%s/index.html" % tpl_name
+        else:
+            return "default/index.html"

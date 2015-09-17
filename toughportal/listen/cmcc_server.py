@@ -8,7 +8,7 @@ from twisted.internet import task
 from twisted.internet.defer import Deferred
 from twisted.internet import protocol
 from twisted.internet import reactor
-from toughportal.packet import huawei
+from toughportal.packet import cmcc
 import datetime
 import logging
 import socket
@@ -25,11 +25,12 @@ class PortalListen(protocol.DatagramProtocol):
     
     actions = {}
     
-    def __init__(self, config):
+    def __init__(self, config,daemon=False):
         self.config = config
+        self.daemon = daemon
         self.init_config()
         self.actions = {
-            huawei.NTF_LOGOUT : self.doAckNtfLogout
+            cmcc.NTF_LOGOUT : self.doAckNtfLogout
         }
         reactor.callLater(5,self.init_task)
         
@@ -38,7 +39,7 @@ class PortalListen(protocol.DatagramProtocol):
         self.secret = self.config.get('portal','secret')
         self.timezone = self.config.get('DEFAULT','tz') or "CST-8"
         self.debug = self.config.getboolean('DEFAULT','debug')
-        self.ac = self.config.get('portal','ac').split(':')
+        self.ac = self.config.get('portal','ac1').split(':')
         self.listen_port = self.config.getint('portal','listen')
         self.portal_port = self.config.getint('portal','port')
         self.portal_host = self.config.has_option('portal','host') \
@@ -55,7 +56,7 @@ class PortalListen(protocol.DatagramProtocol):
     
     def send_ntf_heart(self):
         host,port = self.ac[0], int(self.ac[1])
-        req = huawei.PortalV2.newNtfHeart(self.secret,host)
+        req = cmcc.PortalV2.newNtfHeart(self.secret,host)
         log.msg(":: Send NTF_HEARTBEAT to %s:%s: %s"%(host,port,repr(req)),level=logging.INFO)
         try:
             self.transport.write(str(req), (host,port))
@@ -63,18 +64,14 @@ class PortalListen(protocol.DatagramProtocol):
             pass
         
     def validAc(self,host):
-        if host in self.ac1:
-            return self.ac1
-        if self.ac2 and host in self.ac2:
-            return self.ac2
+        return  host in self.ac1
             
     def doAckNtfLogout(self,req,(host, port)):
-        resp = huawei.PortalV2.newMessage(
-            huawei.ACK_NTF_LOGOUT,
+        resp = cmcc.PortalV2.newMessage(
+            cmcc.ACK_NTF_LOGOUT,
             req.userIp,
             req.serialNo,
             req.reqId,
-            auth = req.auth,
             secret = self.secret
         )
 
@@ -86,11 +83,10 @@ class PortalListen(protocol.DatagramProtocol):
             
     
     def datagramReceived(self, datagram, (host, port)):
-        ac = self.validAc(host)
-        if not ac:
+        if not self.validAc(host):
             return log.msg(':: Dropping packet from unknown ac host ' + host,level=logging.INFO)
         try:
-            req = huawei.PortalV2(
+            req = cmcc.PortalV2(
                 secret=self.secret,
                 packet=datagram,
                 source=(host, port)
@@ -115,10 +111,11 @@ class PortalListen(protocol.DatagramProtocol):
         log.msg('portal server listen %s'%self.portal_host)  
         reactor.listenUDP(self.listen_port, self,interface=self.portal_host)
         # reactor.run()
-
         
         
-def run(config):
-    print 'running hw portal server...'
+def run(config,is_serrvice=False):
+    print 'running cmcc portal server...'
     portal = PortalListen(config)
     portal.run_normal()
+
+
